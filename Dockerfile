@@ -21,14 +21,43 @@
 #            docker images day12-agent:prod     # xem dung lượng
 # ═══════════════════════════════════════════════════════════════════
 
-FROM python:3.11
+# ── Stage 1: Builder ──
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
+# Copy requirements trước để tận dụng Docker cache
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --default-timeout=100 --user -r requirements.txt
+
+# ── Stage 2: Runtime ──
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Tạo user thường không có quyền root
+RUN useradd -m -u 1000 appuser
+
+# Copy thư viện từ stage builder sang cho appuser (chú ý dấu cách giữa 2 đường dẫn)
+COPY --from=builder /root/.local /home/appuser/.local
+ENV PATH=/home/appuser/.local/bin:$PATH
+
+# Copy toàn bộ mã nguồn
 COPY . .
 
-RUN pip install -r requirements.txt
+# Phân quyền thư mục /app cho appuser
+RUN chown -R appuser:appuser /app
 
+# Chuyển sang user thường
+USER appuser
+
+ENV PORT=8000
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Healthcheck định kỳ kiểm tra endpoint /health
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:' + str(__import__('os').getenv('PORT', 8000)) + '/health')" || exit 1
+
+# Khởi chạy uvicorn đọc cổng từ biến môi trường PORT
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
