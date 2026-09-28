@@ -12,13 +12,13 @@
 |-----|----------|
 | Họ và tên | Nguyễn Duy Phong |
 | Mã học viên | 2A202602834 |
-| Repo | https://github.com/DuyPhong123-ai/cd-K4-L3A-DAY12-NguyenDuyPhong-2A202602834-CloudServicesAndDeployment |
+| Repo | https://github.com/DuyPhong123-ai/K4-L3A-DAY12-NguyenDuyPhong-2A202602834-CloudServicesAndDeployment |
 
 ## Service
 
 | Mục | Nội dung |
 |-----|----------|
-| Public URL | https://cd-k4-l3a-day12-nguyenduyphong-2a202602834-cloud-production.up.railway.app |
+| Public URL | https://k4-l3a-day12-nguyenduyphong-2a202602834-cloudser-production.up.railway.app |
 | Platform | Railway |
 | Ngày deploy | 2026-09-28 |
 
@@ -37,22 +37,22 @@ Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
 
 ## Lệnh Kiểm Tra
 
-Thay `<URL>` bằng Public URL ở trên:
+Các lệnh dưới đây sử dụng Public URL của deployment hiện tại:
 
 ```bash
 # 1. Liveness — mong đợi 200 {"status":"ok"}
-curl -i https://cd-k4-l3a-day12-nguyenduyphong-2a202602834-cloud-production.up.railway.app/health
+curl -i https://k4-l3a-day12-nguyenduyphong-2a202602834-cloudser-production.up.railway.app/health
 
 # 2. Readiness — mong đợi 200 {"status":"ready"} (đã nối được Redis)
-curl -i https://cd-k4-l3a-day12-nguyenduyphong-2a202602834-cloud-production.up.railway.app/ready
+curl -i https://k4-l3a-day12-nguyenduyphong-2a202602834-cloudser-production.up.railway.app/ready
 
 # 3. Không có API key — mong đợi 401
-curl -i -X POST https://cd-k4-l3a-day12-nguyenduyphong-2a202602834-cloud-production.up.railway.app/ask \
+curl -i -X POST https://k4-l3a-day12-nguyenduyphong-2a202602834-cloudser-production.up.railway.app/ask \
   -H "Content-Type: application/json" \
   -d '{"question":"Hello"}'
 
 # 4. Có API key — mong đợi 200 kèm câu trả lời
-curl -i -X POST https://cd-k4-l3a-day12-nguyenduyphong-2a202602834-cloud-production.up.railway.app/ask \
+curl -i -X POST https://k4-l3a-day12-nguyenduyphong-2a202602834-cloudser-production.up.railway.app/ask \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $AGENT_API_KEY" \
   -H "X-User-Id: sv-test" \
@@ -60,7 +60,7 @@ curl -i -X POST https://cd-k4-l3a-day12-nguyenduyphong-2a202602834-cloud-product
 
 # 5. Rate limit — gọi 15 lần, những lần cuối phải trả 429
 for i in $(seq 1 15); do
-  curl -s -o /dev/null -w "%{http_code} " -X POST https://cd-k4-l3a-day12-nguyenduyphong-2a202602834-cloud-production.up.railway.app/ask \
+  curl -s -o /dev/null -w "%{http_code} " -X POST https://k4-l3a-day12-nguyenduyphong-2a202602834-cloudser-production.up.railway.app/ask \
     -H "Content-Type: application/json" \
     -H "X-API-Key: $AGENT_API_KEY" \
     -H "X-User-Id: sv-test" \
@@ -88,12 +88,15 @@ HTTP/1.1 401 Unauthorized
 # /ask (có API key):
 HTTP/1.1 200 OK
 {
-  "answer": "Deploy là quá trình đưa ứng dụng từ môi trường phát triển lên máy chủ hoặc nền tảng cloud để người dùng có thể truy cập.",
-  "user_id": "sv-test",
+  "answer": "Với What is deployment, cách làm phổ biến trong production là đặt một lớp gateway phía trước để lo authentication, rate limiting và bảo vệ chi phí.",
+  "user_id": "sv-doc-check",
   "history_length": 0,
-  "cost_usd": 0.0001,
-  "tokens": {"in": 12, "out": 45}
+  "cost_usd": 0.0000222,
+  "tokens": {"in": 4, "out": 36}
 }
+
+# Rate limit (15 request cùng user):
+200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
 ```
 
 ## Ảnh Chụp Màn Hình

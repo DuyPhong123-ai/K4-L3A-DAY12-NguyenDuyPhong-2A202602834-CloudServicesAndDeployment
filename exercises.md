@@ -29,7 +29,7 @@ không làm được.
 
 Dòng log JSON thu được:
 ```json
-{"timestamp": "2026-09-28T09:30:15.123456Z", "level": "INFO", "event": "ask_llm", "user_id": "cp5-test", "cost_usd": 0.00015, "history_length": 3, "status": "success"}
+{"event": "ask_completed", "level": "info", "timestamp": "2026-09-28T10:31:12.513505+00:00", "user_id": "sv-test", "tokens_in": 12, "tokens_out": 45, "cost_usd": 0.0001}
 ```
 
 Hai việc làm được với dòng log có cấu trúc (JSON) mà `print("đã trả lời xong")` không làm được:
@@ -43,23 +43,26 @@ Hai việc làm được với dòng log có cấu trúc (JSON) mà `print("đã
 Build cả hai phiên bản và ghi lại số đo thật:
 
 ```bash
-docker build -f <Dockerfile-1-stage> -t agent:single .
+git show 1bf8ea5:Dockerfile > Dockerfile.single.tmp
+docker build -f Dockerfile.single.tmp -t agent:single .
 docker build -t agent:multi .
 docker images | grep agent
 ```
 
 | Bản | Dung lượng |
 |-----|-----------|
-| 1 stage (bản đầu) | ~465 MB |
-| Multi-stage | ~185 MB |
+| 1 stage (bản đầu) | 1728.4 MB |
+| Multi-stage | 272.5 MB |
 
 Giải thích: phần dung lượng chênh lệch đó là những gì?
 
-Phần dung lượng chênh lệch gần 280 MB bao gồm:
-1. Cache của trình quản lý gói pip (`~/.cache/pip`) sinh ra trong quá trình tải và cài đặt các wheel/package.
-2. Các file mã nguồn trung gian, file header C/C++ và các công cụ biên dịch tạm thời cần thiết khi build package.
-3. Lịch sử các layer trung gian trong image single-stage.
-Trong Dockerfile multi-stage, stage `runtime` chỉ sao chép thư mục `site-packages` sạch và mã nguồn ứng dụng từ stage `builder`. Tất cả cache pip, tệp thừa và công cụ build đều bị loại bỏ hoàn toàn khỏi image cuối cùng, giúp image nhẹ hơn, deploy nhanh hơn và giảm diện tích tấn công (attack surface).
+Tôi build lại Dockerfile một-stage từ commit ban đầu và Dockerfile multi-stage
+hiện tại, rồi dùng `docker image inspect` để đọc trường `Size`. Chênh lệch thực tế
+là khoảng 1455.9 MB. Nguyên nhân lớn nhất là bản đầu dùng base image `python:3.11`
+đầy đủ, còn bản mới dùng `python:3.11-slim`. Ngoài ra, image cuối của bản multi-stage
+chỉ nhận các thư viện đã cài từ builder, không mang theo filesystem và dữ liệu trung
+gian của stage builder. Vì cả hai bản đều dùng `--no-cache-dir` hoặc không giữ cache
+pip sau khi cài, không thể quy toàn bộ chênh lệch này cho cache pip.
 
 ---
 
@@ -90,7 +93,7 @@ lệnh `USER` cắt đứt chuỗi đó ở chỗ nào.
   3. Mặc định không có chỉ thị `USER`, tiến trình Python chạy dưới quyền UID 0 (`root`). Do đó kẻ tấn công sở hữu quyền root bên trong container, có khả năng sửa đổi file hệ thống container, cài đặt công cụ thăm dò và khai thác kernel.
   4. Nếu container có mount các volume nhạy cảm (như docker socket `/var/run/docker.sock` hoặc thư mục `/etc` của host), hoặc nếu kernel của máy host tồn tại lỗ hổng leo thang/vượt ngục (container breakout như Dirty COW, cgroup release_agent), kẻ tấn công với quyền root container sẽ vượt qua ranh giới namespace/cgroup và chiếm quyền root trực tiếp trên máy host.
 - Điểm cắt đứt:
-  Lệnh `USER appuser` cắt đứt chuỗi ngay tại **Bước 3**. Khi chạy dưới quyền non-root (UID 10001) với đặc quyền tối thiểu: kẻ tấn công dù có chiếm được shell cũng không thể chỉnh sửa file hệ thống container, không thể ghi đè các socket nhạy cảm, và không có đủ capabilities để thực hiện các kỹ thuật khai thác hạt nhân nhằm vượt ngục container.
+  Lệnh `USER appuser` cắt đứt chuỗi ngay tại **Bước 3**. Dockerfile tạo user này với UID 1000. Khi chạy dưới quyền non-root và đặc quyền tối thiểu, kẻ tấn công dù có chiếm được shell cũng khó chỉnh sửa file hệ thống container hoặc thực hiện các thao tác cần quyền root. Tuy nhiên, `USER` chỉ là một lớp giảm thiểu; vẫn phải tránh privileged mode, mount Docker socket và các volume nhạy cảm.
 
 ---
 
@@ -150,14 +153,14 @@ Chạy `docker compose up --scale agent=3` rồi gọi `/ask` nhiều lần vớ
 trong một dict Python thay vì Redis, bạn sẽ thấy con số đó thay đổi thế nào?
 
 - Khi lưu lịch sử trong Redis (Stateless):
-  Dù các request được reverse proxy/load balancer phân phối ngẫu nhiên (round-robin) đến bất kỳ container nào trong số 3 container (agent-1, agent-2, agent-3), tất cả các container đều truy vấn và cập nhật vào chung một cơ sở dữ liệu Redis. Vì vậy giá trị `history_length` luôn tăng đều đặn, chính xác và nhất quán: 1, 2, 3, 4, 5...
+  Dù các request được reverse proxy/load balancer phân phối đến bất kỳ container nào trong số 3 container (agent-1, agent-2, agent-3), tất cả các container đều truy vấn và cập nhật vào chung một Redis. Trong code, `history_length` được lấy trước khi ghi thêm hai message `user` và `assistant`, nên các lần gọi liên tiếp cho cùng user trả về dãy 0, 2, 4, 6,... một cách nhất quán.
 - Nếu lịch sử được lưu trong `dict` Python trong RAM (Stateful):
   Vì mỗi container chạy trong một tiến trình độc lập và có vùng nhớ RAM hoàn toàn cô lập:
-  + Request 1 rơi vào container A: container A tạo session mới trong RAM của nó -> trả về `history_length = 1`.
-  + Request 2 rơi vào container B: container B chưa từng gặp user này -> trả về `history_length = 1`.
-  + Request 3 rơi vào container C: container C cũng chưa từng gặp user này -> trả về `history_length = 1`.
-  + Request 4 lại rơi vào container A: container A tìm thấy user từ request 1 -> trả về `history_length = 2`.
-  Kết quả là người dùng sẽ thấy `history_length` nhảy bất định (1, 1, 1, 2, 2, 3...), ngữ cảnh hội thoại bị đứt gãy phụ thuộc vào việc request rơi trúng container nào.
+  + Request 1 rơi vào container A: A chưa có lịch sử nên trả về `history_length = 0`.
+  + Request 2 rơi vào container B: B cũng chưa gặp user này nên tiếp tục trả về 0.
+  + Request 3 rơi vào container C: C cũng trả về 0.
+  + Request 4 quay lại container A: A đã lưu hai message nên trả về 2.
+  Kết quả có thể là 0, 0, 0, 2, 2, 2,... hoặc nhảy không đều tùy cách cân bằng tải, thay vì một dãy tăng chung. Khi container restart, lịch sử trong dict của container đó còn mất hoàn toàn.
 
 ---
 
